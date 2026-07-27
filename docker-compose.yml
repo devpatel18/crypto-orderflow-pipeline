@@ -1,0 +1,152 @@
+name: market-microstructure
+
+services:
+  redpanda:
+    image: redpandadata/redpanda:v24.3.11
+    container_name: redpanda
+    command:
+      - redpanda
+      - start
+      - --mode=dev-container
+      - --smp=1
+      - --memory=1G
+      - --kafka-addr=internal://0.0.0.0:9092,external://0.0.0.0:19092
+      - --advertise-kafka-addr=internal://redpanda:9092,external://localhost:19092
+      - --pandaproxy-addr=internal://0.0.0.0:8082,external://0.0.0.0:18082
+      - --advertise-pandaproxy-addr=internal://redpanda:8082,external://localhost:18082
+      - --schema-registry-addr=internal://0.0.0.0:8081,external://0.0.0.0:18081
+      - --rpc-addr=redpanda:33145
+      - --advertise-rpc-addr=redpanda:33145
+    ports:
+      - "19092:19092"   # Kafka API (external)
+      - "18081:18081"   # Schema registry (external)
+      - "18082:18082"   # HTTP proxy (external)
+      - "9644:9644"     # Admin API / Prometheus metrics
+    volumes:
+      - redpanda-data:/var/lib/redpanda/data
+    healthcheck:
+      test: ["CMD-SHELL", "rpk cluster health | grep -q 'Healthy:.*true'"]
+      interval: 5s
+      timeout: 5s
+      retries: 24
+
+  flink-jobmanager:
+    image: flink:1.20.1-scala_2.12
+    container_name: flink-jobmanager
+    command: jobmanager
+    ports:
+      - "8081:8081"     # Flink web UI / REST API
+    environment:
+      ENABLE_BUILT_IN_PLUGINS: flink-s3-fs-presto-1.20.1.jar
+      FLINK_PROPERTIES: |
+        jobmanager.rpc.address: flink-jobmanager
+        state.checkpoints.dir: s3://checkpoints/flink
+        s3.endpoint: http://minio:9000
+        s3.path.style.access: true
+        s3.access-key: minioadmin
+        s3.secret-key: minioadmin
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/localhost/8081' || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 24
+
+  flink-taskmanager:
+    image: flink:1.20.1-scala_2.12
+    container_name: flink-taskmanager
+    command: taskmanager
+    depends_on:
+      flink-jobmanager:
+        condition: service_healthy
+    environment:
+      ENABLE_BUILT_IN_PLUGINS: flink-s3-fs-presto-1.20.1.jar
+      FLINK_PROPERTIES: |
+        jobmanager.rpc.address: flink-jobmanager
+        taskmanager.numberOfTaskSlots: 4
+        s3.endpoint: http://minio:9000
+        s3.path.style.access: true
+        s3.access-key: minioadmin
+        s3.secret-key: minioadmin
+
+  minio:
+    image: minio/minio:latest
+    container_name: minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "9000:9000"     # S3 API
+      - "9001:9001"     # Console
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 5s
+      retries: 24
+
+  minio-init:
+    image: minio/mc:latest
+    container_name: minio-init
+    depends_on:
+      minio:
+        condition: service_healthy
+    restart: "no"
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 minioadmin minioadmin &&
+      mc mb -p local/warehouse &&
+      mc mb -p local/checkpoints &&
+      echo 'buckets ready'
+      "
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: postgres
+    environment:
+      POSTGRES_USER: market
+      POSTGRES_PASSWORD: market
+      POSTGRES_DB: market
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./infra/postgres:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U market -d market"]
+      interval: 5s
+      timeout: 5s
+      retries: 24
+
+  trino:
+    image: trinodb/trino:467
+    container_name: trino
+    ports:
+      - "8080:8080"     # Trino UI / JDBC
+    volumes:
+      - ./infra/trino/catalog:/etc/trino/catalog:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 24
+
+volumes:
+  redpanda-data:
+  minio-data:
+  postgres-data:
+  redis-data:
