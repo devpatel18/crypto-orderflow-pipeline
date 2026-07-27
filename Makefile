@@ -34,6 +34,10 @@ submit-bars:
 reset-bars:
 	docker exec trino trino --execute "DELETE FROM iceberg.market.trade_bars_1s; DELETE FROM iceberg.market.book_bars_1s"
 
+# Incremental gold build: appends feature/label rows for new complete minutes
+gold:
+	docker exec trino trino --execute "$$(cat scripts/gold_features.sql)"
+
 up:
 	docker compose up -d
 
