@@ -26,6 +26,6 @@ make down    # stop
 | 1 | WebSocket → Kafka producer with reconnect + DLQ | done |
 | 2 | Flink → Iceberg 1-second bars, exactly-once | done |
 | 3 | Features + forward RV labels, point-in-time correct | done |
-| 4 | LightGBM vs persistence and HAR-RV baselines | — |
+| 4 | LightGBM vs persistence and HAR-RV baselines | done — persistence currently wins (expected: ~1h of training data at first run; retrain as data accumulates) |
 | 5 | Online scoring + delayed label join | — |
 | 6 | Dagster, Prometheus, Grafana | — |

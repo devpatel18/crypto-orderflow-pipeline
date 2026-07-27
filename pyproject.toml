@@ -14,18 +14,24 @@ dev = [
     "pytest-asyncio>=0.24",
     "ruff>=0.6",
 ]
+ml = [
+    "lightgbm>=4",
+    "pandas>=2",
+    "mlflow>=2.20,<3",
+    "trino>=0.330",
+]
 
 [build-system]
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
-packages = ["producer"]
+packages = ["producer", "ml"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
-pythonpath = ["flink"]
+pythonpath = [".", "flink"]
 
 [tool.ruff]
 line-length = 100

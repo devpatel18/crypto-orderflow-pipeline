@@ -3,6 +3,9 @@
 CREATE DATABASE iceberg;
 GRANT ALL PRIVILEGES ON DATABASE iceberg TO market;
 
+CREATE DATABASE mlflow;
+GRANT ALL PRIVILEGES ON DATABASE mlflow TO market;
+
 -- Trino's Iceberg JDBC catalog does NOT auto-create these tables (it assumes
 -- they exist and fails with "Cannot check and eventually update SQL schema").
 -- Schema matches Iceberg JdbcCatalog V1 (JdbcUtil).

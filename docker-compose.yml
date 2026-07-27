@@ -115,6 +115,7 @@ services:
       mc alias set local http://minio:9000 minioadmin minioadmin &&
       mc mb -p local/warehouse &&
       mc mb -p local/checkpoints &&
+      mc mb -p local/mlflow &&
       echo 'buckets ready'
       "
 
@@ -148,6 +149,33 @@ services:
         condition: service_healthy
       minio:
         condition: service_healthy
+
+  mlflow:
+    build: infra/mlflow
+    image: market-microstructure/mlflow:2.20.2
+    container_name: mlflow
+    command: >
+      mlflow server
+      --backend-store-uri postgresql://market:market@postgres:5432/mlflow
+      --artifacts-destination s3://mlflow
+      --host 0.0.0.0 --port 5000
+    ports:
+      - "5001:5000"   # MLflow UI (5000 clashes with macOS AirPlay)
+    environment:
+      MLFLOW_S3_ENDPOINT_URL: http://minio:9000
+      AWS_ACCESS_KEY_ID: minioadmin
+      AWS_SECRET_ACCESS_KEY: minioadmin
+      AWS_DEFAULT_REGION: us-east-1
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:5000/health')\""]
+      interval: 10s
+      timeout: 5s
+      retries: 24
 
   redis:
     image: redis:7-alpine

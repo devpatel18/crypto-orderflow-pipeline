@@ -38,6 +38,10 @@ reset-bars:
 gold:
 	docker exec trino trino --execute "$$(cat scripts/gold_features.sql)"
 
+# Refresh gold, then train LightGBM vs baselines and log to MLflow
+train: gold
+	.venv/bin/python -m ml.train
+
 up:
 	docker compose up -d
 
