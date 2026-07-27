@@ -24,6 +24,16 @@ producer:
 check-gaps:
 	.venv/bin/python scripts/check_gaps.py
 
+tables:
+	docker exec trino trino --execute "$$(cat scripts/iceberg_tables.sql)"
+
+submit-bars:
+	./scripts/submit_bars.sh
+
+# Truncate bars tables before a fresh job submit (it replays from earliest)
+reset-bars:
+	docker exec trino trino --execute "DELETE FROM iceberg.market.trade_bars_1s; DELETE FROM iceberg.market.book_bars_1s"
+
 up:
 	docker compose up -d
 

@@ -31,11 +31,14 @@ services:
       retries: 24
 
   flink-jobmanager:
-    image: flink:1.20.1-scala_2.12
+    build: infra/flink
+    image: market-microstructure/flink:1.20.1
     container_name: flink-jobmanager
     command: jobmanager
     ports:
       - "8081:8081"     # Flink web UI / REST API
+    volumes:
+      - ./flink:/opt/pipeline:ro
     environment:
       ENABLE_BUILT_IN_PLUGINS: flink-s3-fs-presto-1.20.1.jar
       FLINK_PROPERTIES: |
@@ -45,6 +48,12 @@ services:
         s3.path.style.access: true
         s3.access-key: minioadmin
         s3.secret-key: minioadmin
+        execution.checkpointing.externalized-checkpoint-retention: RETAIN_ON_CANCELLATION
+        restart-strategy.type: fixed-delay
+        restart-strategy.fixed-delay.attempts: 100
+        restart-strategy.fixed-delay.delay: 5 s
+        python.executable: python3
+        python.client.executable: python3
     healthcheck:
       test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/localhost/8081' || exit 1"]
       interval: 5s
@@ -52,12 +61,15 @@ services:
       retries: 24
 
   flink-taskmanager:
-    image: flink:1.20.1-scala_2.12
+    build: infra/flink
+    image: market-microstructure/flink:1.20.1
     container_name: flink-taskmanager
     command: taskmanager
     depends_on:
       flink-jobmanager:
         condition: service_healthy
+    volumes:
+      - ./flink:/opt/pipeline:ro
     environment:
       ENABLE_BUILT_IN_PLUGINS: flink-s3-fs-presto-1.20.1.jar
       FLINK_PROPERTIES: |
@@ -67,6 +79,11 @@ services:
         s3.path.style.access: true
         s3.access-key: minioadmin
         s3.secret-key: minioadmin
+        restart-strategy.type: fixed-delay
+        restart-strategy.fixed-delay.attempts: 100
+        restart-strategy.fixed-delay.delay: 5 s
+        python.executable: python3
+        python.client.executable: python3
 
   minio:
     image: minio/minio:latest
