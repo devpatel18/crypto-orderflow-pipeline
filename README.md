@@ -23,7 +23,7 @@ make down    # stop
 | Phase | Scope | Status |
 |---|---|---|
 | 0 | Infrastructure: compose stack, health checks, smoke test | done |
-| 1 | WebSocket → Kafka producer with reconnect + DLQ | — |
+| 1 | WebSocket → Kafka producer with reconnect + DLQ | done |
 | 2 | Flink → Iceberg 1-second bars, exactly-once | — |
 | 3 | Features + forward RV labels, point-in-time correct | — |
 | 4 | LightGBM vs persistence and HAR-RV baselines | — |
