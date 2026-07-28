@@ -5,11 +5,8 @@ order-flow features in Flink, persisting to Iceberg, and serving short-horizon
 volatility forecasts through a FastAPI microservice with a delayed-label
 evaluation loop.
 
-**Gap coverage:** Kafka, Flink, Iceberg, Trino, Dagster, Redis, FastAPI
+**Technologies:** Kafka, Flink, Iceberg, Trino, Dagster, Redis, FastAPI
 microservices, MLflow, Prometheus/Grafana, exactly-once semantics, watermarking.
-
-**Deliberately excluded:** Databricks, Spark, Delta, dbt, BigQuery. Those are
-already on the resume. This project should not repeat them.
 
 ---
 
@@ -227,31 +224,19 @@ throughput, DLQ rate, prediction latency, rolling accuracy vs baselines.
 
 ---
 
-## Working with Claude Code
+## Correctness risk areas
 
-**Strong fit:** docker-compose with six services and correct health checks, the
-asyncio WebSocket client, Trino and Iceberg catalog configuration (fiddly and
-poorly documented), FastAPI scaffolding, Dagster asset definitions, Grafana
-dashboard JSON.
+Areas where correct-looking code can silently corrupt data, and which carry
+dedicated tests:
 
-**Slow down and verify:**
-
-- **The OFI formula.** Write tests first, let Claude Code implement against
-  them. A sign error here poisons every downstream result silently.
+- **The OFI formula.** A sign error poisons every downstream result silently;
+  hand-computed unit tests pin the sign conventions.
 - **Flink checkpointing and watermark config.** Correct-looking config can drop
-  data. Test with deliberately injected late events.
-- **L2 snapshot/delta boundaries.** Most likely silent bug in the project.
-- **PyFlink APIs.** Less represented in training data than Spark. Expect some
-  hallucinated method names. Prefer Flink SQL where possible; it is more stable
-  and better documented.
-
-**Fallback:** if PyFlink fights you for more than a day, Spark Structured
-Streaming will do the same job. You lose the Flink gap coverage but keep the
-project. Do not let the engine choice block progress.
-
-**Setup:** `CLAUDE.md` at repo root pinning Python version, formatter, test
-framework, and a rule about not adding dependencies without asking. One phase
-per session, commit at each boundary.
+  data. Verified with a kill/restart idempotency check.
+- **L2 snapshot/delta boundaries.** The most likely silent bug; `conn_epoch`
+  binds every delta to its snapshot across reconnects.
+- **Online/offline feature parity.** The online calculator and the gold SQL are
+  kept formula-identical and checked against each other.
 
 ---
 
@@ -274,15 +259,6 @@ Terraform manages the R2 bucket and VPS provisioning.
   revisit" section
 - Live Grafana dashboard screenshot showing rolling accuracy vs baselines
 - One paragraph on a bug you found and how you found it
-
-## Resume bullets this earns
-
-- Built a real-time streaming platform ingesting Coinbase market data through
-  Kafka and Flink, computing order-flow microstructure features with event-time
-  windowing and exactly-once semantics into Iceberg tables queried via Trino.
-- Engineered a feature store with online/offline parity (Redis and Iceberg),
-  serving volatility forecasts through a FastAPI microservice with a delayed
-  label join producing live rolling accuracy against a persistence baseline.
 
 ## Scope discipline
 

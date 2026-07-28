@@ -19,3 +19,6 @@ mlruns/
 .DS_Store
 .idea/
 .vscode/
+
+# Local AI assistant working notes — not published
+CLAUDE.md
