@@ -4,6 +4,7 @@ services:
   redpanda:
     image: redpandadata/redpanda:v24.3.11
     container_name: redpanda
+    restart: unless-stopped
     command:
       - redpanda
       - start
@@ -34,6 +35,7 @@ services:
     build: infra/flink
     image: market-microstructure/flink:1.20.1
     container_name: flink-jobmanager
+    restart: unless-stopped
     command: jobmanager
     ports:
       - "8081:8081"     # Flink web UI / REST API
@@ -67,6 +69,7 @@ services:
     build: infra/flink
     image: market-microstructure/flink:1.20.1
     container_name: flink-taskmanager
+    restart: unless-stopped
     command: taskmanager
     depends_on:
       flink-jobmanager:
@@ -94,6 +97,7 @@ services:
   minio:
     image: minio/minio:latest
     container_name: minio
+    restart: unless-stopped
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: minioadmin
@@ -128,6 +132,7 @@ services:
   postgres:
     image: postgres:16-alpine
     container_name: postgres
+    restart: unless-stopped
     environment:
       POSTGRES_USER: market
       POSTGRES_PASSWORD: market
@@ -146,10 +151,16 @@ services:
   trino:
     image: trinodb/trino:467
     container_name: trino
+    restart: unless-stopped
+    # jvm.config sets -XX:MaxRAMPercentage=80, so without a limit the heap is
+    # sized off the whole Docker VM (~7.7GB) and OOMs alongside Flink. Capping
+    # the container to 4g pins the heap to ~3.2g, leaving room for Flink+others.
+    mem_limit: 4g
     ports:
       - "8080:8080"     # Trino UI / JDBC
     volumes:
       - ./infra/trino/catalog:/etc/trino/catalog:ro
+      - ./infra/trino/config.properties:/etc/trino/config.properties:ro
     depends_on:
       postgres:
         condition: service_healthy
@@ -160,6 +171,7 @@ services:
     build: infra/mlflow
     image: market-microstructure/mlflow:2.20.2
     container_name: mlflow
+    restart: unless-stopped
     command: >
       mlflow server
       --backend-store-uri postgresql://market:market@postgres:5432/mlflow
@@ -186,6 +198,7 @@ services:
   redis:
     image: redis:7-alpine
     container_name: redis
+    restart: unless-stopped
     ports:
       - "6379:6379"
     volumes:
@@ -199,6 +212,7 @@ services:
   prometheus:
     image: prom/prometheus:v2.53.0
     container_name: prometheus
+    restart: unless-stopped
     command: ["--config.file=/etc/prometheus/prometheus.yml"]
     ports:
       - "9090:9090"
@@ -209,6 +223,7 @@ services:
   grafana:
     image: grafana/grafana:11.1.0
     container_name: grafana
+    restart: unless-stopped
     ports:
       - "3000:3000"
     environment:
