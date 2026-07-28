@@ -42,6 +42,10 @@ reset-bars:
 gold:
 	docker exec trino trino --execute "$$(cat scripts/gold_features.sql)"
 
+# Compact tiny streaming files + expire old snapshots (run periodically)
+iceberg-maintenance:
+	docker exec trino trino --execute "$$(cat scripts/iceberg_maintenance.sql)"
+
 # Refresh gold, then train LightGBM vs baselines and log to MLflow
 train: gold
 	.venv/bin/python -m ml.train
