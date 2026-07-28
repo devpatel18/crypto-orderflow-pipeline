@@ -22,3 +22,6 @@ mlruns/
 
 # Local AI assistant working notes — not published
 CLAUDE.md
+
+# Dagster local state
+.dagster_home/

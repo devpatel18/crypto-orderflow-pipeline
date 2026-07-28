@@ -53,9 +53,12 @@ serve-features:
 serve-api:
 	.venv/bin/uvicorn service.api:app --host 0.0.0.0 --port 8010
 
-# Dagster UI on 3001 (Grafana owns 3000)
+# Dagster UI on 3001 (Grafana owns 3000). DAGSTER_HOME persists schedule
+# state + run history across restarts; without it dagster uses a temp dir
+# and forgets everything. Schedules default to RUNNING, so they begin
+# firing as soon as this daemon is up (gold every 15m, retrain daily 07:00).
 dagster:
-	.venv/bin/dagster dev -f orchestration/definitions.py -p 3001
+	DAGSTER_HOME=$(PWD)/.dagster_home .venv/bin/dagster dev -f orchestration/definitions.py -p 3001
 
 up:
 	docker compose up -d

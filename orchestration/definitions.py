@@ -11,6 +11,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from dagster import (
+    DefaultScheduleStatus,
     Definitions,
     MaterializeResult,
     ScheduleDefinition,
@@ -88,7 +89,18 @@ defs = Definitions(
     assets=[gold_features, gold_quality, volatility_model],
     jobs=[gold_job, retrain_job],
     schedules=[
-        ScheduleDefinition(job=gold_job, cron_schedule="*/15 * * * *"),
-        ScheduleDefinition(job=retrain_job, cron_schedule="0 7 * * *"),
+        # default_status=RUNNING so they start firing as soon as the Dagster
+        # daemon is up — no manual toggle in the UI. They still only run while
+        # the daemon is alive (make dagster / a persistent process).
+        ScheduleDefinition(
+            job=gold_job,
+            cron_schedule="*/15 * * * *",
+            default_status=DefaultScheduleStatus.RUNNING,
+        ),
+        ScheduleDefinition(
+            job=retrain_job,
+            cron_schedule="0 7 * * *",
+            default_status=DefaultScheduleStatus.RUNNING,
+        ),
     ],
 )
