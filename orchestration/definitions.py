@@ -29,9 +29,7 @@ def _statements(sql_text: str) -> list[str]:
     -- comment lines (the trino client executes one statement per call)."""
     out = []
     for chunk in sql_text.split(";"):
-        stmt = "\n".join(
-            ln for ln in chunk.splitlines() if not ln.strip().startswith("--")
-        ).strip()
+        stmt = "\n".join(ln for ln in chunk.splitlines() if not ln.strip().startswith("--")).strip()
         if stmt:
             out.append(stmt)
     return out
@@ -101,14 +99,31 @@ def iceberg_maintenance(context) -> MaterializeResult:
 @asset(deps=[gold_quality], group_name="model")
 def volatility_model(context) -> MaterializeResult:
     """Retrain LightGBM vs baselines on all accumulated gold data and log
-    to MLflow. The registry gets a new model version; the API picks it
-    up on its next restart."""
-    from ml.train import main
+    to MLflow. Promotion is gated: a new registry version is created only
+    when the model beats persistence on the held-out split (else the
+    current champion stands). A rejection is a healthy outcome, not a
+    failure — only genuinely-insufficient data fails the asset. The API
+    picks up a promoted model on its next restart."""
+    from ml.train import run
 
-    rc = main()
-    if rc != 0:
-        raise RuntimeError("training aborted (insufficient gold rows?)")
-    return MaterializeResult()
+    result = run()
+    if result["status"] == "insufficient_data":
+        raise RuntimeError(f"training aborted: only {result.get('n_rows')} usable gold rows")
+    context.log.info(
+        f"retrain {result['status']}: skill_vs_persistence={result['skill']:+.3f} "
+        f"registered_version={result['version']}"
+    )
+    return MaterializeResult(
+        metadata={
+            "status": result["status"],
+            "skill_vs_persistence": round(result["skill"], 4),
+            "registered_version": (
+                str(result["version"]) if result["version"] else "none (rejected)"
+            ),
+            "n_train": result["n_train"],
+            "n_test": result["n_test"],
+        }
+    )
 
 
 gold_job = define_asset_job("gold_refresh", selection=["gold_features", "gold_quality"])
