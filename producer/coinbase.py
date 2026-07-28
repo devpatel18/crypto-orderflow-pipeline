@@ -44,7 +44,14 @@ class Router:
         self._cfg = cfg
         self._sink = sink
         self._last_trade_id: dict[str, int] = {}
-        self.counts = {"trades": 0, "book": 0, "heartbeat": 0, "dlq": 0, "trade_gaps": 0}
+        self.counts = {
+            "trades": 0,
+            "book": 0,
+            "heartbeat": 0,
+            "dlq": 0,
+            "trade_gaps": 0,
+            "reconnects": 0,
+        }
 
     async def route(self, raw: str | bytes, conn_epoch: int) -> None:
         try:

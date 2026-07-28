@@ -16,6 +16,10 @@ RUN JAVA_HOME=$(dirname $(dirname $(readlink -f $(which javac)))) \
 # Connectors: Kafka source, Iceberg runtime + AWS bundle (S3FileIO for MinIO),
 # Postgres JDBC (Iceberg JDBC catalog), and shaded Hadoop (Iceberg's Flink
 # integration needs org.apache.hadoop.conf.Configuration on the classpath).
+# NOTE: the Prometheus metrics reporter already ships as a plugin in
+# /opt/flink/plugins/metrics-prometheus — only FLINK_PROPERTIES config
+# (metrics.reporters) is needed to enable it.
+
 ARG MAVEN=https://repo1.maven.org/maven2
 RUN cd /opt/flink/lib && \
     curl -fsSLO $MAVEN/org/apache/flink/flink-sql-connector-kafka/3.4.0-1.20/flink-sql-connector-kafka-3.4.0-1.20.jar && \

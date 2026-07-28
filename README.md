@@ -28,4 +28,4 @@ make down    # stop
 | 3 | Features + forward RV labels, point-in-time correct | done |
 | 4 | LightGBM vs persistence and HAR-RV baselines | done — persistence currently wins (expected: ~1h of training data at first run; retrain as data accumulates) |
 | 5 | Online scoring + delayed label join | done — online/offline parity test passing; live rolling accuracy at `:8010/accuracy` |
-| 6 | Dagster, Prometheus, Grafana | — |
+| 6 | Dagster, Prometheus, Grafana | done — dashboard at `localhost:3000`, Dagster at `localhost:3001` |

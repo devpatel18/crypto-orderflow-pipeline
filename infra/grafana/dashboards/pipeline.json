@@ -1,0 +1,72 @@
+{
+  "title": "Market Microstructure Pipeline",
+  "uid": "microstructure",
+  "timezone": "utc",
+  "refresh": "30s",
+  "time": {"from": "now-3h", "to": "now"},
+  "schemaVersion": 39,
+  "panels": [
+    {
+      "id": 1, "type": "timeseries", "title": "Producer message rate (msg/s)",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+      "targets": [
+        {"expr": "rate(producer_trades_total[1m])", "legendFormat": "trades"},
+        {"expr": "rate(producer_book_total[1m])", "legendFormat": "book"},
+        {"expr": "rate(producer_heartbeats_total[1m])", "legendFormat": "heartbeats"}
+      ]
+    },
+    {
+      "id": 2, "type": "stat", "title": "DLQ messages",
+      "gridPos": {"h": 4, "w": 4, "x": 12, "y": 0},
+      "targets": [{"expr": "producer_dlq_total"}],
+      "fieldConfig": {"defaults": {"thresholds": {"steps": [
+        {"color": "green", "value": null}, {"color": "red", "value": 1}]}}}
+    },
+    {
+      "id": 3, "type": "stat", "title": "WS reconnects",
+      "gridPos": {"h": 4, "w": 4, "x": 16, "y": 0},
+      "targets": [{"expr": "producer_reconnects_total"}]
+    },
+    {
+      "id": 4, "type": "stat", "title": "Trade gaps detected",
+      "gridPos": {"h": 4, "w": 4, "x": 20, "y": 0},
+      "targets": [{"expr": "producer_trade_gaps_total"}],
+      "fieldConfig": {"defaults": {"thresholds": {"steps": [
+        {"color": "green", "value": null}, {"color": "red", "value": 1}]}}}
+    },
+    {
+      "id": 5, "type": "timeseries", "title": "Prediction scoring latency p95 (s)",
+      "gridPos": {"h": 4, "w": 12, "x": 12, "y": 4},
+      "targets": [{"expr": "histogram_quantile(0.95, rate(api_scoring_seconds_bucket[10m]))", "legendFormat": "p95"}]
+    },
+    {
+      "id": 6, "type": "timeseries", "title": "Rolling MAE (1h): model vs persistence",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+      "targets": [{"expr": "api_rolling_mae", "legendFormat": "{{product}} {{kind}}"}]
+    },
+    {
+      "id": 7, "type": "timeseries", "title": "Skill vs persistence (1h rolling)",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
+      "targets": [{"expr": "api_rolling_skill_vs_persistence", "legendFormat": "{{product}}"}],
+      "fieldConfig": {"defaults": {"unit": "percentunit"}}
+    },
+    {
+      "id": 8, "type": "timeseries", "title": "Predictions and labels joined (per hour)",
+      "gridPos": {"h": 8, "w": 8, "x": 0, "y": 16},
+      "targets": [
+        {"expr": "sum by (product) (increase(api_predictions_total[1h]))", "legendFormat": "pred {{product}}"},
+        {"expr": "sum by (product) (increase(api_labels_joined_total[1h]))", "legendFormat": "labeled {{product}}"}
+      ]
+    },
+    {
+      "id": 9, "type": "timeseries", "title": "Flink records out/s (all operators)",
+      "gridPos": {"h": 8, "w": 8, "x": 8, "y": 16},
+      "targets": [{"expr": "sum(rate(flink_taskmanager_job_task_operator_numRecordsOut[1m]))", "legendFormat": "records/s"}]
+    },
+    {
+      "id": 10, "type": "timeseries", "title": "Consumer group lag (Redpanda)",
+      "gridPos": {"h": 8, "w": 8, "x": 16, "y": 16},
+      "targets": [{"expr": "sum by (redpanda_group) (redpanda_kafka_consumer_group_lag_sum)", "legendFormat": "{{redpanda_group}}"}]
+    }
+  ]
+}

@@ -54,6 +54,9 @@ services:
         restart-strategy.fixed-delay.delay: 5 s
         python.executable: python3
         python.client.executable: python3
+        metrics.reporters: prom
+        metrics.reporter.prom.factory.class: org.apache.flink.metrics.prometheus.PrometheusReporterFactory
+        metrics.reporter.prom.port: 9249
     healthcheck:
       test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/localhost/8081' || exit 1"]
       interval: 5s
@@ -84,6 +87,9 @@ services:
         restart-strategy.fixed-delay.delay: 5 s
         python.executable: python3
         python.client.executable: python3
+        metrics.reporters: prom
+        metrics.reporter.prom.factory.class: org.apache.flink.metrics.prometheus.PrometheusReporterFactory
+        metrics.reporter.prom.port: 9249
 
   minio:
     image: minio/minio:latest
@@ -190,8 +196,36 @@ services:
       timeout: 5s
       retries: 24
 
+  prometheus:
+    image: prom/prometheus:v2.53.0
+    container_name: prometheus
+    command: ["--config.file=/etc/prometheus/prometheus.yml"]
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+
+  grafana:
+    image: grafana/grafana:11.1.0
+    container_name: grafana
+    ports:
+      - "3000:3000"
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+    volumes:
+      - ./infra/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./infra/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      - prometheus
+
 volumes:
   redpanda-data:
   minio-data:
   postgres-data:
   redis-data:
+  prometheus-data:
+  grafana-data:

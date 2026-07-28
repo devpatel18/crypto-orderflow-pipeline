@@ -6,6 +6,7 @@ requires-python = ">=3.11,<3.12"
 dependencies = [
     "websockets>=13",
     "aiokafka>=0.11",
+    "prometheus-client>=0.20",
 ]
 
 [project.optional-dependencies]
@@ -25,6 +26,10 @@ serve = [
     "uvicorn>=0.30",
     "redis>=5",
     "psycopg[binary]>=3.1",
+]
+orchestrate = [
+    "dagster>=1.8",
+    "dagster-webserver>=1.8",
 ]
 
 [build-system]

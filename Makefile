@@ -31,9 +31,12 @@ tables:
 submit-bars:
 	./scripts/submit_bars.sh
 
-# Truncate bars tables before a fresh job submit (it replays from earliest)
+# Truncate bars tables before a fresh job submit (it replays from earliest).
+# Gold is derived from bars and must be rebuilt with them: replays are not
+# guaranteed bar-identical at watermark late-drop edges (idleness is
+# wall-clock), and stale gold rows fail the recomputation tests.
 reset-bars:
-	docker exec trino trino --execute "DELETE FROM iceberg.market.trade_bars_1s; DELETE FROM iceberg.market.book_bars_1s"
+	docker exec trino trino --execute "DELETE FROM iceberg.market.trade_bars_1s; DELETE FROM iceberg.market.book_bars_1s; DELETE FROM iceberg.market.features_5m"
 
 # Incremental gold build: appends feature/label rows for new complete minutes
 gold:
@@ -49,6 +52,10 @@ serve-features:
 # 8010: 8000 is commonly taken by other local apps
 serve-api:
 	.venv/bin/uvicorn service.api:app --host 0.0.0.0 --port 8010
+
+# Dagster UI on 3001 (Grafana owns 3000)
+dagster:
+	.venv/bin/dagster dev -f orchestration/definitions.py -p 3001
 
 up:
 	docker compose up -d

@@ -29,6 +29,7 @@ import psycopg
 import redis.asyncio as aioredis
 from aiokafka import AIOKafkaProducer
 from fastapi import FastAPI, HTTPException
+from prometheus_client import Counter, Gauge, Histogram, make_asgi_app
 
 from ml.data import FEATURES
 from producer.log import setup
@@ -46,6 +47,14 @@ MIN_BAR_COVERAGE = 250
 POLL_S = 5.0
 
 state: dict = {}
+
+PREDICTIONS = Counter("api_predictions_total", "Predictions written", ["product"])
+LABELS = Counter("api_labels_joined_total", "Delayed labels joined", ["product"])
+SCORING = Histogram("api_scoring_seconds", "Model predict() wall time")
+ROLLING_MAE = Gauge("api_rolling_mae", "1h rolling MAE", ["product", "kind"])
+ROLLING_SKILL = Gauge(
+    "api_rolling_skill_vs_persistence", "1h rolling skill: 1 - model/persistence MAE", ["product"]
+)
 
 
 def feature_frame(feats: dict) -> pd.DataFrame:
@@ -73,13 +82,17 @@ async def score_once(product: str) -> None:
             "WHERE product_id = %s AND as_of_ts = %s AND label_rv IS NULL",
             (feats["rv_5m"], product, as_of - timedelta(minutes=5)),
         )
+        if cur.rowcount > 0:
+            LABELS.labels(product).inc(cur.rowcount)
         if feats["bar_count_5m"] < MIN_BAR_COVERAGE:
             log.warning(
                 "score.skipped_low_coverage",
                 extra={"ctx": {"product": product, "as_of": feats["as_of_ts"]}},
             )
             return
-        pred = float(state["model"].predict(feature_frame(feats))[0])
+        with SCORING.time():
+            pred = float(state["model"].predict(feature_frame(feats))[0])
+        PREDICTIONS.labels(product).inc()
         record = {
             "product_id": product,
             "as_of_ts": feats["as_of_ts"],
@@ -109,13 +122,28 @@ async def score_once(product: str) -> None:
     log.info("score.predicted", extra={"ctx": record})
 
 
+async def refresh_accuracy_gauges() -> None:
+    for row in await accuracy(window_minutes=60):
+        ROLLING_MAE.labels(row["product_id"], "model").set(row["model_mae"])
+        ROLLING_MAE.labels(row["product_id"], "persistence").set(row["persistence_mae"])
+        if row["skill_vs_persistence"] is not None:
+            ROLLING_SKILL.labels(row["product_id"]).set(row["skill_vs_persistence"])
+
+
 async def scoring_loop() -> None:
+    tick = 0
     while True:
         for product in PRODUCTS:
             try:
                 await score_once(product)
             except Exception:
                 log.exception("score.error")
+        tick += 1
+        if tick % 6 == 0:  # every ~30s
+            try:
+                await refresh_accuracy_gauges()
+            except Exception:
+                log.exception("accuracy.gauge_error")
         await asyncio.sleep(POLL_S)
 
 
@@ -147,6 +175,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="vol-forecast", lifespan=lifespan)
+app.mount("/metrics", make_asgi_app())
 
 
 @app.get("/health")

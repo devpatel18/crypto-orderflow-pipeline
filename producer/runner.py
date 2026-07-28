@@ -67,6 +67,7 @@ async def run(
             )
         if max_epochs is not None and epoch >= max_epochs:
             return
+        router.counts["reconnects"] += 1
         delay = backoff.next()
         log.info("ws.reconnecting", extra={"ctx": {"epoch": epoch, "delay_s": round(delay, 2)}})
         await asyncio.sleep(delay)

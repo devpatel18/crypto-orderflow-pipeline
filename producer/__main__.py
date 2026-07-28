@@ -1,8 +1,10 @@
 import asyncio
 import contextlib
 import logging
+import os
 import signal
 
+from . import metrics
 from .coinbase import Router
 from .config import Config
 from .log import setup
@@ -24,8 +26,12 @@ async def main() -> None:
     sink = KafkaSink(cfg.bootstrap, dlq_topic=cfg.dlq_topic)
     await sink.start()
     router = Router(cfg, sink)
+    metrics_port = int(os.environ.get("METRICS_PORT", "9100"))
+    if metrics_port:
+        metrics.start(metrics_port)
     run_task = asyncio.create_task(run(cfg, sink, router))
     stats_task = asyncio.create_task(_log_stats(router))
+    metrics_task = asyncio.create_task(metrics.sync_counts(router.counts))
 
     loop = asyncio.get_running_loop()
     for sig in (signal.SIGINT, signal.SIGTERM):
@@ -36,9 +42,10 @@ async def main() -> None:
     except asyncio.CancelledError:
         log.info("producer.shutdown", extra={"ctx": dict(router.counts)})
     finally:
-        stats_task.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await stats_task
+        for task in (stats_task, metrics_task):
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
         await sink.stop()
 
 
