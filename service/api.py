@@ -65,6 +65,30 @@ def feature_frame(feats: dict) -> pd.DataFrame:
     return df
 
 
+async def pg_conn() -> psycopg.AsyncConnection:
+    """Return a live Postgres connection, reconnecting if the previous one was
+    closed (e.g. Postgres/Docker restarted underneath us — a single long-lived
+    connection otherwise stays dead until the process restarts)."""
+    conn = state.get("pg")
+    if conn is None or conn.closed:
+        state["pg"] = conn = await psycopg.AsyncConnection.connect(PG_DSN, autocommit=True)
+    return conn
+
+
+async def pg_fetch(sql: str, params: tuple, many: bool = False):
+    """Read helper for endpoints: one reconnect+retry on a dropped connection
+    so the first request after a DB bounce self-heals instead of 500-ing."""
+    for attempt in range(2):
+        try:
+            async with (await pg_conn()).cursor() as cur:
+                await cur.execute(sql, params)
+                return await (cur.fetchall() if many else cur.fetchone())
+        except psycopg.OperationalError:
+            state["pg"] = None
+            if attempt == 1:
+                raise
+
+
 async def score_once(product: str) -> None:
     raw = await state["redis"].get(f"features:{product}:latest")
     if raw is None:
@@ -75,7 +99,7 @@ async def score_once(product: str) -> None:
         return
     state["last_scored"][product] = as_of
 
-    async with state["pg"].cursor() as cur:
+    async with (await pg_conn()).cursor() as cur:
         # label join first: this row's rv_5m realizes the T-5m prediction
         await cur.execute(
             "UPDATE predictions SET label_rv = %s, labeled_at = now() "
@@ -170,7 +194,8 @@ async def lifespan(app: FastAPI):
     with contextlib.suppress(asyncio.CancelledError):
         await task
     await state["kafka"].stop()
-    await state["pg"].close()
+    if state.get("pg") is not None and not state["pg"].closed:
+        await state["pg"].close()
     await state["redis"].aclose()
 
 
@@ -185,14 +210,12 @@ async def health() -> dict:
 
 @app.get("/predictions/latest")
 async def latest(product: str = "BTC-USD") -> dict:
-    async with state["pg"].cursor() as cur:
-        await cur.execute(
-            "SELECT product_id, as_of_ts, label_ts, pred_rv, pred_persistence, "
-            "label_rv, model_version FROM predictions WHERE product_id = %s "
-            "ORDER BY as_of_ts DESC LIMIT 1",
-            (product,),
-        )
-        row = await cur.fetchone()
+    row = await pg_fetch(
+        "SELECT product_id, as_of_ts, label_ts, pred_rv, pred_persistence, "
+        "label_rv, model_version FROM predictions WHERE product_id = %s "
+        "ORDER BY as_of_ts DESC LIMIT 1",
+        (product,),
+    )
     if row is None:
         raise HTTPException(404, f"no predictions for {product}")
     keys = [
@@ -213,18 +236,17 @@ async def latest(product: str = "BTC-USD") -> dict:
 async def accuracy(window_minutes: int = 60) -> list[dict]:
     """Rolling MAE/RMSE of the model vs the persistence baseline over
     labeled predictions in the trailing window."""
-    async with state["pg"].cursor() as cur:
-        await cur.execute(
-            "SELECT product_id, count(*), "
-            "avg(abs(pred_rv - label_rv)), "
-            "sqrt(avg(power(pred_rv - label_rv, 2))), "
-            "avg(abs(pred_persistence - label_rv)), "
-            "sqrt(avg(power(pred_persistence - label_rv, 2))) "
-            "FROM predictions WHERE label_rv IS NOT NULL "
-            "AND as_of_ts > now() - make_interval(mins => %s) GROUP BY 1",
-            (window_minutes,),
-        )
-        rows = await cur.fetchall()
+    rows = await pg_fetch(
+        "SELECT product_id, count(*), "
+        "avg(abs(pred_rv - label_rv)), "
+        "sqrt(avg(power(pred_rv - label_rv, 2))), "
+        "avg(abs(pred_persistence - label_rv)), "
+        "sqrt(avg(power(pred_persistence - label_rv, 2))) "
+        "FROM predictions WHERE label_rv IS NOT NULL "
+        "AND as_of_ts > now() - make_interval(mins => %s) GROUP BY 1",
+        (window_minutes,),
+        many=True,
+    )
     return [
         {
             "product_id": r[0],

@@ -19,7 +19,22 @@ from dagster import (
     define_asset_job,
 )
 
-GOLD_SQL = Path(__file__).resolve().parent.parent / "scripts" / "gold_features.sql"
+_SCRIPTS = Path(__file__).resolve().parent.parent / "scripts"
+GOLD_SQL = _SCRIPTS / "gold_features.sql"
+MAINT_SQL = _SCRIPTS / "iceberg_maintenance.sql"
+
+
+def _statements(sql_text: str) -> list[str]:
+    """Split a multi-statement .sql file into individual statements, dropping
+    -- comment lines (the trino client executes one statement per call)."""
+    out = []
+    for chunk in sql_text.split(";"):
+        stmt = "\n".join(
+            ln for ln in chunk.splitlines() if not ln.strip().startswith("--")
+        ).strip()
+        if stmt:
+            out.append(stmt)
+    return out
 
 
 def _trino():
@@ -69,6 +84,20 @@ def gold_quality(context) -> MaterializeResult:
     return MaterializeResult(metadata={"low_coverage_rows": low_coverage})
 
 
+@asset(group_name="maintenance")
+def iceberg_maintenance(context) -> MaterializeResult:
+    """Compact tiny streaming files (10s commits bloat the warehouse) and
+    expire old snapshots so query planning stays fast and storage bounded.
+    Independent of the gold/model chain; runs on its own 4h schedule."""
+    cur = _trino().cursor()
+    stmts = _statements(MAINT_SQL.read_text())
+    for stmt in stmts:
+        cur.execute(stmt)
+        cur.fetchall()
+    context.log.info(f"ran {len(stmts)} maintenance statements")
+    return MaterializeResult(metadata={"statements": len(stmts)})
+
+
 @asset(deps=[gold_quality], group_name="model")
 def volatility_model(context) -> MaterializeResult:
     """Retrain LightGBM vs baselines on all accumulated gold data and log
@@ -84,10 +113,11 @@ def volatility_model(context) -> MaterializeResult:
 
 gold_job = define_asset_job("gold_refresh", selection=["gold_features", "gold_quality"])
 retrain_job = define_asset_job("retrain", selection=["volatility_model"])
+maintenance_job = define_asset_job("maintenance", selection=["iceberg_maintenance"])
 
 defs = Definitions(
-    assets=[gold_features, gold_quality, volatility_model],
-    jobs=[gold_job, retrain_job],
+    assets=[gold_features, gold_quality, iceberg_maintenance, volatility_model],
+    jobs=[gold_job, retrain_job, maintenance_job],
     schedules=[
         # default_status=RUNNING so they start firing as soon as the Dagster
         # daemon is up — no manual toggle in the UI. They still only run while
@@ -95,6 +125,11 @@ defs = Definitions(
         ScheduleDefinition(
             job=gold_job,
             cron_schedule="*/15 * * * *",
+            default_status=DefaultScheduleStatus.RUNNING,
+        ),
+        ScheduleDefinition(
+            job=maintenance_job,
+            cron_schedule="0 */4 * * *",  # every 4 hours
             default_status=DefaultScheduleStatus.RUNNING,
         ),
         ScheduleDefinition(
