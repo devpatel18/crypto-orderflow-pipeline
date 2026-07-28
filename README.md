@@ -27,5 +27,5 @@ make down    # stop
 | 2 | Flink → Iceberg 1-second bars, exactly-once | done |
 | 3 | Features + forward RV labels, point-in-time correct | done |
 | 4 | LightGBM vs persistence and HAR-RV baselines | done — persistence currently wins (expected: ~1h of training data at first run; retrain as data accumulates) |
-| 5 | Online scoring + delayed label join | — |
+| 5 | Online scoring + delayed label join | done — online/offline parity test passing; live rolling accuracy at `:8010/accuracy` |
 | 6 | Dagster, Prometheus, Grafana | — |

@@ -112,8 +112,7 @@ CREATE TEMPORARY TABLE trades_src (
 # NOTE: Coinbase `side` on a match is the MAKER side (docs: sell = up-tick).
 # Columns are named maker_* to keep that explicit; taker-signed imbalance is
 # derived downstream as (maker_sell_volume - maker_buy_volume) / volume.
-TRADES_INSERT = """
-INSERT INTO iceberg.market.trade_bars_1s
+TRADES_AGG = """
 SELECT
   product_id,
   CAST(window_start AS TIMESTAMP(6)) AS bar_ts,
@@ -130,8 +129,7 @@ FROM TABLE(TUMBLE(TABLE matches_only, DESCRIPTOR(event_ts), INTERVAL '1' SECOND)
 GROUP BY product_id, window_start, window_end
 """
 
-BOOK_INSERT = """
-INSERT INTO iceberg.market.book_bars_1s
+BOOK_AGG = """
 SELECT
   product_id,
   CAST(window_start AS TIMESTAMP(6)) AS bar_ts,
@@ -147,6 +145,34 @@ SELECT
   MAX(conn_epoch) AS conn_epoch_max
 FROM TABLE(TUMBLE(TABLE book_tops, DESCRIPTOR(event_ts), INTERVAL '1' SECOND))
 GROUP BY product_id, window_start, window_end
+"""
+
+# Online feature path: the SAME aggregated bars also go to Kafka topics
+# (single partition each — total order matters for the rolling buffers in
+# service/features.py). At-least-once sink: the consumer dedupes by
+# (product, bar_ts). The statement set reuses the window subgraph, so
+# Iceberg and Kafka receive identical rows by construction.
+KAFKA_SINK_DDL = """
+CREATE TEMPORARY TABLE {name} ({columns})
+WITH (
+  'connector' = 'kafka',
+  'topic' = '{topic}',
+  'properties.bootstrap.servers' = '{bootstrap}',
+  'format' = 'json'
+)
+"""
+
+TRADE_BAR_COLUMNS = """
+  product_id STRING, bar_ts TIMESTAMP(6), trade_count BIGINT, volume DOUBLE,
+  notional DOUBLE, maker_buy_volume DOUBLE, maker_sell_volume DOUBLE,
+  price_min DOUBLE, price_max DOUBLE
+"""
+
+BOOK_BAR_COLUMNS = """
+  product_id STRING, bar_ts TIMESTAMP(6), mid_close DOUBLE, mid_min DOUBLE,
+  mid_max DOUBLE, spread_mean DOUBLE, spread_max DOUBLE,
+  bid_depth5_mean DOUBLE, ask_depth5_mean DOUBLE, ofi_sum DOUBLE,
+  updates BIGINT, conn_epoch_max BIGINT
 """
 
 
@@ -292,9 +318,30 @@ def main() -> None:
         ),
     )
 
+    t_env.create_temporary_view("trade_bars_agg", t_env.sql_query(TRADES_AGG))
+    t_env.create_temporary_view("book_bars_agg", t_env.sql_query(BOOK_AGG))
+    t_env.execute_sql(
+        KAFKA_SINK_DDL.format(
+            name="trade_bars_topic",
+            columns=TRADE_BAR_COLUMNS,
+            topic="bars.trade.1s",
+            bootstrap=BOOTSTRAP,
+        )
+    )
+    t_env.execute_sql(
+        KAFKA_SINK_DDL.format(
+            name="book_bars_topic",
+            columns=BOOK_BAR_COLUMNS,
+            topic="bars.book.1s",
+            bootstrap=BOOTSTRAP,
+        )
+    )
+
     stmt = t_env.create_statement_set()
-    stmt.add_insert_sql(TRADES_INSERT)
-    stmt.add_insert_sql(BOOK_INSERT)
+    stmt.add_insert_sql("INSERT INTO iceberg.market.trade_bars_1s SELECT * FROM trade_bars_agg")
+    stmt.add_insert_sql("INSERT INTO iceberg.market.book_bars_1s SELECT * FROM book_bars_agg")
+    stmt.add_insert_sql("INSERT INTO trade_bars_topic SELECT * FROM trade_bars_agg")
+    stmt.add_insert_sql("INSERT INTO book_bars_topic SELECT * FROM book_bars_agg")
     stmt.execute()
 
 

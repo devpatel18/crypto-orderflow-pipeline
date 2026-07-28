@@ -16,6 +16,7 @@ topics:
 	docker exec redpanda rpk topic create trades.raw -p 3 -r 1 || true
 	docker exec redpanda rpk topic create book.l2.raw -p 3 -r 1 -c max.message.bytes=10485760 || true
 	docker exec redpanda rpk topic create dlq.malformed -p 1 -r 1 || true
+	docker exec redpanda rpk topic create bars.book.1s bars.trade.1s predictions -p 1 -r 1 || true
 	docker exec redpanda rpk topic alter-config book.l2.raw --set max.message.bytes=10485760
 
 producer:
@@ -41,6 +42,13 @@ gold:
 # Refresh gold, then train LightGBM vs baselines and log to MLflow
 train: gold
 	.venv/bin/python -m ml.train
+
+serve-features:
+	.venv/bin/python -m service.features
+
+# 8010: 8000 is commonly taken by other local apps
+serve-api:
+	.venv/bin/uvicorn service.api:app --host 0.0.0.0 --port 8010
 
 up:
 	docker compose up -d
