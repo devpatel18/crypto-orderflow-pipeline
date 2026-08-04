@@ -30,12 +30,24 @@ existing AS (
     GROUP BY 1
 ),
 grid AS (
-    SELECT b.product_id, t AS as_of_ts
+    -- Start the minute series at the first un-built minute, NOT the global data
+    -- start, so sequence() spans a single refresh window (tens of rows) instead
+    -- of the whole history. Trino hard-caps sequence() at 10000 entries and the
+    -- full-history span crosses that once the pipeline has run ~7 days; the old
+    -- `WHERE t > max(as_of_ts)` filtered AFTER sequence() had already generated
+    -- (and overflowed on) every historical minute. The greatest(...) on the
+    -- stop bound keeps start<=stop when there are no new minutes (sequence then
+    -- yields the single start row, which the WHERE below drops).
+    SELECT b.product_id, s.t AS as_of_ts
     FROM bounds b
     LEFT JOIN existing e ON e.product_id = b.product_id
-    CROSS JOIN UNNEST(sequence(b.start_t, b.end_t, interval '1' minute)) AS s(t)
-    WHERE b.start_t <= b.end_t
-      AND t > coalesce(e.mx, timestamp '1970-01-01')
+    CROSS JOIN UNNEST(sequence(
+        greatest(b.start_t, coalesce(e.mx + interval '1' minute, b.start_t)),
+        greatest(b.start_t, coalesce(e.mx + interval '1' minute, b.start_t), b.end_t),
+        interval '1' minute
+    )) AS s(t)
+    WHERE s.t > coalesce(e.mx, timestamp '1970-01-01')
+      AND s.t <= b.end_t
 ),
 book_agg AS (
     SELECT
