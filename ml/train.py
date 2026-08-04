@@ -153,7 +153,7 @@ def run() -> dict:
         tag = "bootstrap" if bootstrap else f"skill {skill:+.1%} >= {PROMOTION_MIN_SKILL:+.1%}"
         print(
             f"\nPROMOTED -> registered {MODEL_NAME} v{version} ({tag}). "
-            "API picks it up on next restart."
+            "API auto-reloads it within ~5 min (no restart)."
         )
     else:
         print(

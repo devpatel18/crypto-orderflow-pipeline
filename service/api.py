@@ -37,7 +37,7 @@ from producer.log import setup
 log = logging.getLogger("service.api")
 
 TRACKING_URI = os.environ.get("MLFLOW_TRACKING_URI", "http://localhost:5001")
-MODEL_URI = os.environ.get("MODEL_URI", "models:/vol-forecast-lgbm/latest")
+MODEL_NAME = os.environ.get("MODEL_NAME", "vol-forecast-lgbm")
 REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379")
 BOOTSTRAP = os.environ.get("KAFKA_BOOTSTRAP", "localhost:19092")
 PG_DSN = os.environ.get("PG_DSN", "postgresql://market:market@localhost:5432/market")
@@ -45,6 +45,11 @@ PRODUCTS = [p.strip() for p in os.environ.get("PRODUCTS", "BTC-USD,ETH-USD").spl
 PREDICTIONS_TOPIC = "predictions"
 MIN_BAR_COVERAGE = 250
 POLL_S = 5.0
+# Poll the registry for a newer promoted champion this often (in scoring-loop
+# ticks; POLL_S seconds each). The nightly retrain only registers a version
+# when it beats persistence (train.py gate), so "newest registered" is always
+# the newest promoted model — the API hot-swaps to it with no restart.
+RELOAD_EVERY_TICKS = int(os.environ.get("MODEL_RELOAD_TICKS", "60"))
 
 state: dict = {}
 
@@ -154,6 +159,40 @@ async def refresh_accuracy_gauges() -> None:
             ROLLING_SKILL.labels(row["product_id"]).set(row["skill_vs_persistence"])
 
 
+def _load_registry_model(current: str | None = None):
+    """(sync, blocking) Load the newest registered model version -> (model,
+    version_str). Only promoted versions are ever registered (train.py's
+    promotion gate), so the highest version number is the current champion.
+    If `current` is passed and already the newest, returns None so the caller
+    skips the artifact download. Runs off the event loop via to_thread."""
+    client = mlflow.MlflowClient()
+    versions = client.search_model_versions(f"name='{MODEL_NAME}'")
+    if not versions:
+        raise RuntimeError(f"no registered versions for {MODEL_NAME}")
+    version = str(max(int(v.version) for v in versions))
+    if current is not None and version == current:
+        return None
+    model = mlflow.lightgbm.load_model(f"models:/{MODEL_NAME}/{version}")
+    return model, version
+
+
+async def maybe_reload_model() -> None:
+    """Hot-swap to a newer promoted champion if one has appeared. The swap is a
+    single tuple assignment with no await between the two names, so scoring
+    coroutines never see a model/version mismatch."""
+    try:
+        result = await asyncio.to_thread(_load_registry_model, state["model_version"])
+    except Exception:
+        log.exception("model.reload_error")
+        return
+    if result is None:
+        return
+    model, version = result
+    old = state["model_version"]
+    state["model"], state["model_version"] = model, version
+    log.info("model.reloaded", extra={"ctx": {"from": old, "to": version}})
+
+
 async def scoring_loop() -> None:
     tick = 0
     while True:
@@ -168,6 +207,8 @@ async def scoring_loop() -> None:
                 await refresh_accuracy_gauges()
             except Exception:
                 log.exception("accuracy.gauge_error")
+        if tick % RELOAD_EVERY_TICKS == 0:  # every ~5 min: pick up a new champion
+            await maybe_reload_model()
         await asyncio.sleep(POLL_S)
 
 
@@ -175,12 +216,10 @@ async def scoring_loop() -> None:
 async def lifespan(app: FastAPI):
     setup()
     mlflow.set_tracking_uri(TRACKING_URI)
-    model = mlflow.lightgbm.load_model(MODEL_URI)
-    client = mlflow.MlflowClient()
-    version = client.get_latest_versions("vol-forecast-lgbm")[0].version
+    model, version = await asyncio.to_thread(_load_registry_model)
     state.update(
         model=model,
-        model_version=str(version),
+        model_version=version,
         redis=aioredis.from_url(REDIS_URL, decode_responses=True),
         pg=await psycopg.AsyncConnection.connect(PG_DSN, autocommit=True),
         kafka=AIOKafkaProducer(bootstrap_servers=BOOTSTRAP),
