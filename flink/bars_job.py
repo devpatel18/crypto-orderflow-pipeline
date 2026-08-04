@@ -259,8 +259,13 @@ class BookStateFn(KeyedProcessFunction):
 def main() -> None:
     env = StreamExecutionEnvironment.get_execution_environment()
     env.set_parallelism(1)
-    env.enable_checkpointing(10_000, CheckpointingMode.EXACTLY_ONCE)
-    env.get_checkpoint_config().set_min_pause_between_checkpoints(5_000)
+    # 30s checkpoints: Iceberg commits are bound to checkpoints, so a shorter
+    # interval means more commits => more metadata.json/manifest files. 30s
+    # keeps Iceberg reasonably fresh for the gold job (15m cadence) while
+    # committing 3x less often than the original 10s. The Kafka bar sinks emit
+    # continuously and are unaffected, so online scoring latency is unchanged.
+    env.enable_checkpointing(30_000, CheckpointingMode.EXACTLY_ONCE)
+    env.get_checkpoint_config().set_min_pause_between_checkpoints(10_000)
 
     t_env = StreamTableEnvironment.create(env)
     t_env.get_config().set("table.local-time-zone", "UTC")
@@ -336,6 +341,19 @@ def main() -> None:
             bootstrap=BOOTSTRAP,
         )
     )
+
+    # Bound Iceberg metadata growth. Every commit writes a new metadata.json;
+    # without this the writer never deletes old ones and they accumulate
+    # unboundedly (~one per commit), which once filled the object store and
+    # took the job down. delete-after-commit prunes anything beyond the last
+    # 100 versions on each commit. Set from the writer because Trino's
+    # extra_properties denylists write.* keys.
+    for _tbl in ("trade_bars_1s", "book_bars_1s"):
+        t_env.execute_sql(
+            f"ALTER TABLE iceberg.market.{_tbl} SET ("
+            "'write.metadata.delete-after-commit.enabled' = 'true', "
+            "'write.metadata.previous-versions-max' = '100')"
+        )
 
     stmt = t_env.create_statement_set()
     stmt.add_insert_sql("INSERT INTO iceberg.market.trade_bars_1s SELECT * FROM trade_bars_agg")
