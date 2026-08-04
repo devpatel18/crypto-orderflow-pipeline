@@ -11,9 +11,12 @@ from __future__ import annotations
 from pathlib import Path
 
 from dagster import (
+    Backoff,
     DefaultScheduleStatus,
     Definitions,
+    Jitter,
     MaterializeResult,
+    RetryPolicy,
     ScheduleDefinition,
     asset,
     define_asset_job,
@@ -22,6 +25,14 @@ from dagster import (
 _SCRIPTS = Path(__file__).resolve().parent.parent / "scripts"
 GOLD_SQL = _SCRIPTS / "gold_features.sql"
 MAINT_SQL = _SCRIPTS / "iceberg_maintenance.sql"
+
+# Trino gets recycled periodically (Docker/host on the dev laptop), dropping any
+# in-flight connection mid-query — a single blip otherwise fails a whole run.
+# Each retry re-runs the op with a fresh _trino() connection; the gold build is
+# incremental+idempotent (only adds minutes past max(as_of_ts)) and Iceberg
+# INSERTs commit atomically, so re-running is always safe. Exponential backoff
+# 10/20/40s (+jitter) comfortably spans a Trino restart (~10-30s to healthy).
+TRINO_RETRY = RetryPolicy(max_retries=3, delay=10, backoff=Backoff.EXPONENTIAL, jitter=Jitter.PLUS_MINUS)
 
 
 def _statements(sql_text: str) -> list[str]:
@@ -46,7 +57,7 @@ def _scalar(cur, sql: str):
     return cur.fetchone()[0]
 
 
-@asset(group_name="gold")
+@asset(group_name="gold", retry_policy=TRINO_RETRY)
 def gold_features(context) -> MaterializeResult:
     """Incrementally extend features_5m from the 1s bars. Idempotent:
     only minutes past each product's max(as_of_ts) are added, so this
@@ -61,7 +72,7 @@ def gold_features(context) -> MaterializeResult:
     return MaterializeResult(metadata={"rows_added": after - before, "rows_total": after})
 
 
-@asset(deps=[gold_features], group_name="gold")
+@asset(deps=[gold_features], group_name="gold", retry_policy=TRINO_RETRY)
 def gold_quality(context) -> MaterializeResult:
     """Hard quality gates on the gold table; raises on violation."""
     cur = _trino().cursor()
@@ -82,7 +93,7 @@ def gold_quality(context) -> MaterializeResult:
     return MaterializeResult(metadata={"low_coverage_rows": low_coverage})
 
 
-@asset(group_name="maintenance")
+@asset(group_name="maintenance", retry_policy=TRINO_RETRY)
 def iceberg_maintenance(context) -> MaterializeResult:
     """Compact tiny streaming files (10s commits bloat the warehouse) and
     expire old snapshots so query planning stays fast and storage bounded.
@@ -96,7 +107,7 @@ def iceberg_maintenance(context) -> MaterializeResult:
     return MaterializeResult(metadata={"statements": len(stmts)})
 
 
-@asset(deps=[gold_quality], group_name="model")
+@asset(deps=[gold_quality], group_name="model", retry_policy=TRINO_RETRY)
 def volatility_model(context) -> MaterializeResult:
     """Retrain LightGBM vs baselines on all accumulated gold data and log
     to MLflow. Promotion is gated: a new registry version is created only
