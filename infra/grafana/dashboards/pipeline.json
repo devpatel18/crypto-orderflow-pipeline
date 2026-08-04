@@ -28,11 +28,12 @@
       "targets": [{"expr": "producer_reconnects_total"}]
     },
     {
-      "id": 4, "type": "stat", "title": "Trade gaps detected",
+      "id": 4, "type": "stat", "title": "Trade gaps (% of trades)",
+      "description": "Trades missed during WS reconnects, as a share of all trades ingested (lifetime). Coinbase's WS has no replay, so a reconnect leaves a small gap; this quantifies the loss. Sub-1% is healthy.",
       "gridPos": {"h": 4, "w": 4, "x": 20, "y": 0},
-      "targets": [{"expr": "producer_trade_gaps_total"}],
-      "fieldConfig": {"defaults": {"thresholds": {"steps": [
-        {"color": "green", "value": null}, {"color": "red", "value": 1}]}}}
+      "targets": [{"expr": "100 * producer_trade_gaps_total / producer_trades_total"}],
+      "fieldConfig": {"defaults": {"unit": "percent", "decimals": 2, "thresholds": {"steps": [
+        {"color": "green", "value": null}, {"color": "yellow", "value": 1}, {"color": "red", "value": 5}]}}}
     },
     {
       "id": 5, "type": "timeseries", "title": "Prediction scoring latency p95 (s)",
@@ -66,7 +67,7 @@
     {
       "id": 10, "type": "timeseries", "title": "Consumer group lag (Redpanda)",
       "gridPos": {"h": 8, "w": 8, "x": 16, "y": 16},
-      "targets": [{"expr": "sum by (redpanda_group) (redpanda_kafka_consumer_group_lag_sum)", "legendFormat": "{{redpanda_group}}"}]
+      "targets": [{"expr": "sum by (redpanda_group) (max by (redpanda_topic, redpanda_partition) (redpanda_kafka_max_offset) - on (redpanda_topic, redpanda_partition) group_right redpanda_kafka_consumer_group_committed_offset)", "legendFormat": "{{redpanda_group}}"}]
     }
   ]
 }
