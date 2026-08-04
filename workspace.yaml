@@ -1,0 +1,9 @@
+# Persistent workspace for `dagster dev`. Without this, `dagster dev -f ...`
+# writes a temporary workspace.yaml under the OS temp dir (/var/folders/.../T
+# on macOS), which the OS purges after ~3 days of a long-running process —
+# the daemon then hits "workspace freshness tolerance" and shuts its threads
+# down, silently stopping all schedules. Keeping the file in the repo avoids
+# that. Launch with:  dagster dev -w workspace.yaml -p 3001
+load_from:
+  - python_file:
+      relative_path: orchestration/definitions.py

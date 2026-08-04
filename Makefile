@@ -61,8 +61,14 @@ serve-api:
 # state + run history across restarts; without it dagster uses a temp dir
 # and forgets everything. Schedules default to RUNNING, so they begin
 # firing as soon as this daemon is up (gold every 15m, retrain daily 07:00).
+# TMPDIR is pinned to a persistent dir: `dagster dev` writes its working
+# workspace.yaml under TMPDIR, and on macOS the default (/var/folders/.../T)
+# is purged after ~3 days, which kills the daemon threads mid-run and silently
+# stops all schedules. Keeping it under .dagster_home survives the OS cleaner.
 dagster:
-	DAGSTER_HOME=$(PWD)/.dagster_home .venv/bin/dagster dev -f orchestration/definitions.py -p 3001
+	mkdir -p $(PWD)/.dagster_home/tmp
+	DAGSTER_HOME=$(PWD)/.dagster_home TMPDIR=$(PWD)/.dagster_home/tmp \
+		.venv/bin/dagster dev -w workspace.yaml -p 3001
 
 up:
 	docker compose up -d
