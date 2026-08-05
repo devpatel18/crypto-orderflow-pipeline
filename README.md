@@ -65,6 +65,7 @@ rather than cherry-picking a good hour. A **promotion gate** enforces the
 honesty: the nightly retrain only ships a new model if it actually beats
 persistence on a held-out split, so the served model can never quietly regress
 below the baseline.
+<img width="1897" height="993" alt="Screenshot 2026-08-04 at 2 53 30 PM" src="https://github.com/user-attachments/assets/ed3b2942-cff0-4be4-82b3-6e3a6e6546f6" />
 
 ## What I learned
 
@@ -85,13 +86,7 @@ Honestly, most of what I learned wasn't about the model.
     history" worked fine for a week, then broke the moment the data crossed a
     hard 10,000-row limit. Systems that are healthy at small scale can fail at a
     threshold you didn't know was there.
-  - **Unsupervised processes die silently.** A scheduler kept running as a
-    process but stopped doing anything after macOS quietly deleted a temp file it
-    depended on. An ingestion process died with the terminal it was launched in.
-    Both looked "up" while doing nothing.
-  - **A laptop is not a server.** Packing the whole stack into 10 GB of Docker on
-    a 16 GB Mac meant the query engine kept getting memory-starved and
-    restarting. No amount of code cleverness fixes being out of RAM.
+
 - **Design for recovery, not for never failing** — because it *will* fail. The
   pieces that saved me every time were the boring ones: idempotent jobs that
   re-run safely, checkpoints so the stream resumes exactly where it left off,
@@ -129,6 +124,8 @@ make down    # stop everything (your data volumes are kept)
 
 Once it's up: the Grafana dashboard is at `localhost:3000`, Dagster at
 `localhost:3001`, and live model accuracy at `localhost:8010/accuracy`.
+<img width="1904" height="990" alt="Screenshot 2026-08-04 at 2 53 40 PM" src="https://github.com/user-attachments/assets/843e057f-e35a-4177-8c3d-325c9b2ae4d4" />
+<img width="1903" height="571" alt="Screenshot 2026-08-04 at 2 54 05 PM" src="https://github.com/user-attachments/assets/a8bc293d-1f0e-47e2-a442-4ef153e0fcde" />
 
 ## Build phases
 
