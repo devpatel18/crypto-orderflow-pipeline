@@ -27,7 +27,7 @@ arrives.
 | Layer | Choice | Why this and not the alternative |
 |---|---|---|
 | Broker | Redpanda | Kafka API, single binary, ~1GB RAM, no ZooKeeper |
-| Stream processing | Apache Flink (Flink SQL + PyFlink) | True streaming engine with event-time semantics and stateful operators. Chosen over Spark Structured Streaming specifically because Spark is already covered elsewhere |
+| Stream processing | Apache Flink (Flink SQL + PyFlink) | True streaming engine with event-time semantics and stateful operators.|
 | Table format | Apache Iceberg | Hidden partitioning, snapshot isolation, time travel |
 | Object store | MinIO local, Cloudflare R2 deployed | S3 API; R2 has zero egress fees |
 | Query engine | Trino | Federated SQL over Iceberg and Postgres. Also backs the Presto claim on the skills line |
